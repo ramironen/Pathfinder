@@ -573,7 +573,7 @@ public class GridMarker : MonoBehaviour
     {
         if (scoreText != null)
         {
-            scoreText.text = "Paths: " + pathsCount + " | Success: " + successCount + " | Fail: " + failCount;
+            scoreText.text = "Paths: " + pathsCount + "\nSuccess: " + successCount + "\nFail: " + failCount;
         }
     }
 
