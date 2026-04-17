@@ -70,14 +70,19 @@ public class GridMarker : MonoBehaviour
     // Track visited cells during drawing
     private HashSet<Vector2Int> visitedCells = new HashSet<Vector2Int>();
 
+    // Reference to player's sprite renderer
+    private SpriteRenderer playerSpriteRenderer;
+
     void Start()
     {
         gridX = 0;
         gridY = 0;
         UpdateWorldPosition();
         currentState = GameState.Idle;
-        ShowMessage("Let's Begin! Press SPACE to start");
+        ShowMessage("Press SPACE to start");
         UpdateScoreDisplay();
+        
+        playerSpriteRenderer = GetComponent<SpriteRenderer>();
     }
 
     void Update()
@@ -219,7 +224,7 @@ public class GridMarker : MonoBehaviour
     {
         float worldX = ORIGIN_X + (gridX * CELL_SIZE);
         float worldY = ORIGIN_Y + (gridY * CELL_SIZE);
-        transform.position = new Vector3(worldX, worldY, 0f);
+        transform.position = new Vector3(worldX, worldY, -0.05f);
     }
 
     void GenerateNewPath()
@@ -342,6 +347,7 @@ public class GridMarker : MonoBehaviour
     {
         currentState = GameState.ShowingPath;
         ClearTargetPathSegments();
+        SetPlayerVisible(false);
 
         ShowMessage("Watch the path!");
 
@@ -383,7 +389,8 @@ public class GridMarker : MonoBehaviour
 
         // Transition to wait for tail state
         currentState = GameState.WaitForTail;
-        ShowMessage("Your turn! Go to the tail and press SPACE");
+        SetPlayerVisible(true);
+        ShowMessage("Your turn!");
     }
 
     void ClearTargetPathSegments()
@@ -511,6 +518,7 @@ public class GridMarker : MonoBehaviour
         // Show message
         ShowMessage("Nice try! Here's the correct path...");
         ClearUserPath();
+        SetPlayerVisible(false);
         
         yield return new WaitForSeconds(1f);
         
@@ -566,6 +574,14 @@ public class GridMarker : MonoBehaviour
         if (scoreText != null)
         {
             scoreText.text = "Paths: " + pathsCount + " | Success: " + successCount + " | Fail: " + failCount;
+        }
+    }
+
+    void SetPlayerVisible(bool visible)
+    {
+        if (playerSpriteRenderer != null)
+        {
+            playerSpriteRenderer.enabled = visible;
         }
     }
 }
