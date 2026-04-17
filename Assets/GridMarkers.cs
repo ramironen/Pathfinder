@@ -484,7 +484,7 @@ public class GridMarker : MonoBehaviour
             
             if (remainingChances > 0)
             {
-                ShowMessage("Not quite! " + remainingChances + " chance(s) left");
+                ShowMessage("Try again!");
                 ClearUserPath();
                 currentState = GameState.Fail;
                 StartCoroutine(RetryWithSamePath());
