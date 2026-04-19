@@ -8,11 +8,11 @@ public class GridMarker : MonoBehaviour
     // Grid bounds (0-6 for X, 0-5 for Y)
     private const int MAX_X = 6;
     private const int MAX_Y = 5;
-    
+
     // Current grid position (integers)
     private int gridX = 0;
     private int gridY = 0;
-    
+
     // Grid settings
     private const float CELL_SIZE = 2f;
     private const float ORIGIN_X = 0f;
@@ -35,6 +35,7 @@ public class GridMarker : MonoBehaviour
     [Header("UI")]
     public Text messageText;
     public Text scoreText;
+    public Text sessionTimerText;
 
     // Score tracking
     private int pathsCount = 0;
@@ -45,6 +46,12 @@ public class GridMarker : MonoBehaviour
     [Header("Gameplay")]
     public int chancesPerPath = 2;
     private int remainingChances = 0;
+
+    // Session timer
+    private float sessionSecondsRemaining;
+    private int sessionDurationTotalSeconds;
+    private bool sessionEnded;
+    private float sessionPlaySecondsAccumulated;
 
     // Game states
     private enum GameState
@@ -79,14 +86,37 @@ public class GridMarker : MonoBehaviour
         gridY = 0;
         UpdateWorldPosition();
         currentState = GameState.Idle;
+        sessionEnded = false;
+        sessionDurationTotalSeconds = PlayerPrefs.GetInt("GameDurationSeconds", 60);
+        sessionSecondsRemaining = sessionDurationTotalSeconds;
+        sessionPlaySecondsAccumulated = 0f;
         ShowMessage("Press SPACE to start");
         UpdateScoreDisplay();
-        
+        UpdateSessionTimerDisplay();
+
         playerSpriteRenderer = GetComponent<SpriteRenderer>();
     }
 
     void Update()
     {
+        if (!sessionEnded && sessionSecondsRemaining > 0f)
+            sessionPlaySecondsAccumulated += Time.deltaTime;
+
+        if (!sessionEnded)
+        {
+            sessionSecondsRemaining -= Time.deltaTime;
+            if (sessionSecondsRemaining <= 0f)
+            {
+                sessionSecondsRemaining = 0f;
+                OnSessionTimeExpired();
+            }
+        }
+
+        UpdateSessionTimerDisplay();
+
+        if (sessionEnded)
+            return;
+
         switch (currentState)
         {
             case GameState.Idle:
@@ -104,10 +134,62 @@ public class GridMarker : MonoBehaviour
         }
     }
 
+    void UpdateSessionTimerDisplay()
+    {
+        if (sessionTimerText == null)
+            return;
+
+        if (sessionEnded && sessionSecondsRemaining <= 0f)
+        {
+            sessionTimerText.text = "0:00";
+            return;
+        }
+
+        int totalSeconds = Mathf.Max(0, Mathf.CeilToInt(sessionSecondsRemaining));
+        int minutes = totalSeconds / 60;
+        int seconds = totalSeconds % 60;
+        sessionTimerText.text = minutes + ":" + seconds.ToString("00");
+    }
+
+    void OnSessionTimeExpired()
+    {
+        if (sessionEnded)
+            return;
+
+        sessionEnded = true;
+        StopAllCoroutines();
+        ClearTargetPathSegments();
+        ClearUserPath();
+        SetPlayerVisible(true);
+        currentState = GameState.Idle;
+        ShowMessage("Time's up!");
+        UpdateSessionTimerDisplay();
+        WriteSessionEndStats("TimeUp");
+    }
+
+    void WriteSessionEndStats(string endReason)
+    {
+        int played = Mathf.RoundToInt(sessionPlaySecondsAccumulated);
+        PlayerPrefs.SetInt("Stat_PathsTotal", pathsCount);
+        PlayerPrefs.SetInt("Stat_Success", successCount);
+        PlayerPrefs.SetInt("Stat_Fail", failCount);
+        PlayerPrefs.SetString("Stat_EndReason", endReason);
+        PlayerPrefs.SetString("Stat_SecondsPlayed", played.ToString());
+        PlayerPrefs.Save();
+    }
+
+    bool SessionBlocksInput()
+    {
+        return sessionEnded;
+    }
+
     void HandleIdleState()
     {
+        if (SessionBlocksInput())
+            return;
+
         HandleMovement();
-        
+
         if (Input.GetKeyDown(KeyCode.Space))
         {
             GenerateNewPath();
@@ -116,8 +198,11 @@ public class GridMarker : MonoBehaviour
 
     void HandleWaitForTailState()
     {
+        if (SessionBlocksInput())
+            return;
+
         HandleMovement();
-        
+
         if (Input.GetKeyDown(KeyCode.Space))
         {
             StartDrawing();
@@ -126,6 +211,9 @@ public class GridMarker : MonoBehaviour
 
     void HandleDrawingState()
     {
+        if (SessionBlocksInput())
+            return;
+
         // Space to finish and check the path (at any time)
         if (Input.GetKeyDown(KeyCode.Space))
         {
@@ -136,17 +224,17 @@ public class GridMarker : MonoBehaviour
         // Handle movement and drawing
         Vector2Int oldPos = new Vector2Int(gridX, gridY);
         bool moved = HandleMovementAndReturnMoved();
-        
+
         if (moved)
         {
             Vector2Int newPos = new Vector2Int(gridX, gridY);
-            
+
             // Check if revisiting a cell
             if (visitedCells.Contains(newPos))
             {
                 remainingChances--;
                 Debug.Log("Crossed path! Remaining chances: " + remainingChances);
-                
+
                 if (remainingChances > 0)
                 {
                     ShowMessage("Oops! " + remainingChances + " chance(s) left");
@@ -167,7 +255,7 @@ public class GridMarker : MonoBehaviour
 
             // Add new position to user path
             AddUserPathSegment(newPos);
-            
+
             // Check if path is complete (reached target length)
             if (userPath.Count == targetPath.Count)
             {
@@ -229,11 +317,14 @@ public class GridMarker : MonoBehaviour
 
     void GenerateNewPath()
     {
+        if (SessionBlocksInput())
+            return;
+
         targetPath.Clear();
-        
+
         // Reset chances for new path
         remainingChances = chancesPerPath;
-        
+
         // Try to generate valid path (max 100 attempts)
         bool validPath = false;
         for (int attempt = 0; attempt < 100 && !validPath; attempt++)
@@ -321,7 +412,7 @@ public class GridMarker : MonoBehaviour
     List<int> DivideLength(int totalLength, int parts)
     {
         List<int> lengths = new List<int>();
-        
+
         if (parts <= 0 || totalLength <= 0)
         {
             lengths.Add(totalLength);
@@ -345,6 +436,9 @@ public class GridMarker : MonoBehaviour
 
     IEnumerator DisplayTargetPathCoroutine(bool isNewPath)
     {
+        if (sessionEnded)
+            yield break;
+
         currentState = GameState.ShowingPath;
         ClearTargetPathSegments();
         SetPlayerVisible(false);
@@ -354,11 +448,14 @@ public class GridMarker : MonoBehaviour
         // Spawn segments one by one with delay
         for (int i = 0; i < targetPath.Count; i++)
         {
+            if (sessionEnded)
+                yield break;
+
             Vector2Int gridPos = targetPath[i];
             float worldX = ORIGIN_X + (gridPos.x * CELL_SIZE);
             float worldY = ORIGIN_Y + (gridPos.y * CELL_SIZE);
 
-            GameObject segment = Instantiate(pathSegmentPrefab, 
+            GameObject segment = Instantiate(pathSegmentPrefab,
                 new Vector3(worldX, worldY, 0f), Quaternion.identity);
 
             // Set color based on position
@@ -379,10 +476,16 @@ public class GridMarker : MonoBehaviour
             yield return new WaitForSeconds(segmentDelay);
         }
 
+        if (sessionEnded)
+            yield break;
+
         ShowMessage("Memorize it!");
 
         // Wait for display time with full path visible
         yield return new WaitForSeconds(displayTime);
+
+        if (sessionEnded)
+            yield break;
 
         // Remove all segments
         ClearTargetPathSegments();
@@ -404,6 +507,9 @@ public class GridMarker : MonoBehaviour
 
     void StartDrawing()
     {
+        if (SessionBlocksInput())
+            return;
+
         currentState = GameState.Drawing;
         userPath.Clear();
         visitedCells.Clear();
@@ -449,6 +555,9 @@ public class GridMarker : MonoBehaviour
 
     void CheckResult()
     {
+        if (SessionBlocksInput())
+            return;
+
         bool success = true;
 
         // Check if paths match
@@ -481,7 +590,7 @@ public class GridMarker : MonoBehaviour
         {
             remainingChances--;
             Debug.Log("Wrong path! Remaining chances: " + remainingChances);
-            
+
             if (remainingChances > 0)
             {
                 ShowMessage("Try again!");
@@ -503,12 +612,16 @@ public class GridMarker : MonoBehaviour
     IEnumerator RetryWithSamePath()
     {
         yield return new WaitForSeconds(1.5f);
+        if (sessionEnded)
+            yield break;
         StartCoroutine(DisplayTargetPathCoroutine(false));
     }
 
     IEnumerator HandleSuccess()
     {
         yield return new WaitForSeconds(1.5f);
+        if (sessionEnded)
+            yield break;
         ClearUserPath();
         GenerateNewPath();
     }
@@ -519,17 +632,23 @@ public class GridMarker : MonoBehaviour
         ShowMessage("Nice try! Here's the correct path...");
         ClearUserPath();
         SetPlayerVisible(false);
-        
+
         yield return new WaitForSeconds(1f);
-        
+
+        if (sessionEnded)
+            yield break;
+
         // Show the correct path
         for (int i = 0; i < targetPath.Count; i++)
         {
+            if (sessionEnded)
+                yield break;
+
             Vector2Int gridPos = targetPath[i];
             float worldX = ORIGIN_X + (gridPos.x * CELL_SIZE);
             float worldY = ORIGIN_Y + (gridPos.y * CELL_SIZE);
 
-            GameObject segment = Instantiate(pathSegmentPrefab, 
+            GameObject segment = Instantiate(pathSegmentPrefab,
                 new Vector3(worldX, worldY, 0f), Quaternion.identity);
 
             SpriteRenderer sr = segment.GetComponent<SpriteRenderer>();
@@ -546,16 +665,25 @@ public class GridMarker : MonoBehaviour
             targetPathSegments.Add(segment);
             yield return new WaitForSeconds(segmentDelay);
         }
-        
+
+        if (sessionEnded)
+            yield break;
+
         // Wait for user to see the correct path
         yield return new WaitForSeconds(displayTime);
-        
+
+        if (sessionEnded)
+            yield break;
+
         // Clear and show new path message
         ClearTargetPathSegments();
         ShowMessage("Let's try a new one!");
-        
+
         yield return new WaitForSeconds(1.5f);
-        
+
+        if (sessionEnded)
+            yield break;
+
         // Generate new path
         GenerateNewPath();
     }
