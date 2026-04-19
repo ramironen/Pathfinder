@@ -13,3 +13,8 @@ UserSettings/
 *.svd
 .DS_Store
 .vscode/
+
+# Unity: keep committing Assets/**/*.meta next to each asset (do not ignore *.meta).
+
+# Runtime-generated session export (CsvSessionExporter)
+pathfinder_sessions.csv

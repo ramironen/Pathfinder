@@ -52,6 +52,7 @@ public class GridMarker : MonoBehaviour
     private int sessionDurationTotalSeconds;
     private bool sessionEnded;
     private float sessionPlaySecondsAccumulated;
+    private bool csvRowCommitted;
 
     // Game states
     private enum GameState
@@ -90,11 +91,19 @@ public class GridMarker : MonoBehaviour
         sessionDurationTotalSeconds = PlayerPrefs.GetInt("GameDurationSeconds", 60);
         sessionSecondsRemaining = sessionDurationTotalSeconds;
         sessionPlaySecondsAccumulated = 0f;
+        csvRowCommitted = false;
         ShowMessage("Press SPACE to start");
         UpdateScoreDisplay();
         UpdateSessionTimerDisplay();
 
         playerSpriteRenderer = GetComponent<SpriteRenderer>();
+    }
+
+    void OnApplicationQuit()
+    {
+        if (csvRowCommitted)
+            return;
+        FinalizeSessionCsv("ApplicationQuit");
     }
 
     void Update()
@@ -164,7 +173,60 @@ public class GridMarker : MonoBehaviour
         currentState = GameState.Idle;
         ShowMessage("Time's up!");
         UpdateSessionTimerDisplay();
-        WriteSessionEndStats("TimeUp");
+        FinalizeSessionCsv("TimeUp");
+    }
+
+    void FinalizeSessionCsv(string endReason)
+    {
+        if (csvRowCommitted)
+            return;
+        WriteSessionEndStats(endReason);
+        CsvSessionExporter.AppendRow(BuildCsvPayload(endReason));
+        csvRowCommitted = true;
+        PathfinderRegistrationSnapshot.Clear();
+    }
+
+    SessionCsvPayload BuildCsvPayload(string endReason)
+    {
+        string sessionId = PlayerPrefs.GetString("SessionId", "");
+        bool useSnapshot = PathfinderRegistrationSnapshot.HasData &&
+            !string.IsNullOrEmpty(sessionId) &&
+            sessionId == PathfinderRegistrationSnapshot.CapturedSessionId;
+
+        string playerName = useSnapshot
+            ? PathfinderRegistrationSnapshot.PlayerName
+            : PlayerPrefs.GetString("PlayerName", "Guest");
+        int playerAge = useSnapshot
+            ? PathfinderRegistrationSnapshot.PlayerAge
+            : PlayerPrefs.GetInt("PlayerAge", 0);
+        string playerGender = useSnapshot
+            ? PathfinderRegistrationSnapshot.PlayerGender
+            : PlayerPrefs.GetString("PlayerGender", "");
+        int isRegistered = useSnapshot
+            ? PathfinderRegistrationSnapshot.IsRegistered
+            : PlayerPrefs.GetInt("IsRegistered", 0);
+        int gameDurationSeconds = useSnapshot
+            ? PathfinderRegistrationSnapshot.GameDurationSeconds
+            : PlayerPrefs.GetInt("GameDurationSeconds", 60);
+
+        return new SessionCsvPayload
+        {
+            EndReason = endReason,
+            PlayerName = playerName,
+            PlayerAge = playerAge,
+            PlayerGender = playerGender,
+            IsRegistered = isRegistered,
+            GameDurationSeconds = gameDurationSeconds,
+            PathLength = pathLength,
+            NumberOfTurns = numberOfTurns,
+            DisplayTime = displayTime,
+            SegmentDelay = segmentDelay,
+            ChancesPerPath = chancesPerPath,
+            PathsTotal = pathsCount,
+            Success = successCount,
+            Fail = failCount,
+            SecondsPlayed = Mathf.RoundToInt(sessionPlaySecondsAccumulated)
+        };
     }
 
     void WriteSessionEndStats(string endReason)
